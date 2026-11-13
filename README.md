@@ -1,10 +1,13 @@
+
 # codeswipe
 
 Code review as a deck of cards. A coding agent turns a diff into a `*.codeswipe.json` file; a human drops it into this app and swipes through it.
 
 Use it here - https://rlqd.github.io/codeswipe/
 
-Or build your own:
+![Codeswipe](codeswipe.webp)
+
+## Run it locally / development
 
 ```
 npm run dev      # start the app
