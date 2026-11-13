@@ -90,6 +90,13 @@
 .drop strong {
   font-size: 18px;
 }
+.drop .ext {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--orange);
+}
 .drop span {
   color: var(--muted);
 }

@@ -67,10 +67,10 @@ export function Home({ error, onLoad }: Props) {
       <h1>
         code<span>swipe</span>
       </h1>
-      <p className="tagline">Code review, one card at a time. Swipe right to accept, left to comment.</p>
+      <p className="tagline">Review code in small snippets by swiping cards</p>
 
       <button type="button" className={`drop${over ? ' over' : ''}`} onClick={() => input.current?.click()}>
-        <strong>Drop a .codeswipe.json file here</strong>
+        <strong>Drop a <code className="ext">.codeswipe.json</code> or <code className="ext">.diff</code> file here</strong>
         <span>or click to choose one. Nothing leaves your browser.</span>
       </button>
       <input ref={input} type="file" accept=".json,.diff,.patch,.txt" hidden onChange={(e) => void open(e.target.files?.[0])} />
