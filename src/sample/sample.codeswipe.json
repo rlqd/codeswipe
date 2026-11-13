@@ -1,0 +1,238 @@
+{
+  "format": "codeswipe",
+  "version": 1,
+  "title": "Rate limit login attempts",
+  "description": "Adds a sliding-window rate limiter to POST /login, hardens session ids and cookies, and stops leaking which emails are registered.",
+  "createdAt": "2026-11-13T01:01:51.716Z",
+  "diff": "diff --git a/docs/auth.md b/docs/auth.md\nindex 58b0dcd..bbf3a78 100644\n--- a/docs/auth.md\n+++ b/docs/auth.md\n@@ -7,3 +7,9 @@ Users sign in with email and password. A successful login sets the\n \n - `POST /login` with `{ email, password }`\n - `POST /logout`\n+\n+## Rate limiting\n+\n+Login attempts are limited per IP address and email. After 5 failed\n+attempts within 10 minutes the pair is locked out for 15 minutes and\n+`POST /login` answers `429` with a `Retry-After` header.\ndiff --git a/src/auth/login.ts b/src/auth/login.ts\nindex 1413a9d..fc9337d 100644\n--- a/src/auth/login.ts\n+++ b/src/auth/login.ts\n@@ -1,25 +1,54 @@\n import type { Request, Response } from '../http'\n import { config } from '../config'\n import { findUserByEmail } from '../db/users'\n+import { secondsUntil } from '../utils/time'\n import { verifyPassword } from './password'\n-import { createSession } from './session'\n+import { RateLimiter } from './rateLimiter'\n+import { createSession, destroySession } from './session'\n+\n+const limiter = new RateLimiter(config.login)\n+\n+function limiterKey(req: Request, email: string): string {\n+  return `${req.ip}:${email}`\n+}\n \n export async function loginHandler(req: Request, res: Response) {\n   const { email, password } = req.body\n-  const user = await findUserByEmail(email)\n-  if (!user) {\n-    return res.status(404).json({ error: 'No such user' })\n+  if (typeof email !== 'string' || typeof password !== 'string') {\n+    return res.status(400).json({ error: 'Email and password are required' })\n+  }\n+\n+  const key = limiterKey(req, email)\n+  const limit = limiter.check(key)\n+  if (!limit.allowed) {\n+    res.header('Retry-After', String(secondsUntil(limit.retryAt)))\n+    return res.status(429).json({ error: 'Too many attempts, try again later' })\n   }\n-  const ok = await verifyPassword(password, user.passwordHash)\n-  if (!ok) {\n-    return res.status(401).json({ error: 'Wrong password' })\n+\n+  const user = await findUserByEmail(email)\n+  const ok = user ? await verifyPassword(password, user.passwordHash) : false\n+  if (!user || !ok) {\n+    return res.status(401).json({\n+      error: 'Invalid email or password',\n+      attemptsLeft: limit.remaining,\n+    })\n   }\n+\n+  limiter.reset(key)\n   const session = createSession(user.id)\n-  res.cookie(config.cookieName, session.id)\n+  res.cookie(config.cookieName, session.id, {\n+    httpOnly: true,\n+    sameSite: 'lax',\n+    maxAge: config.sessionTtlMs,\n+  })\n   return res.json({ userId: user.id })\n }\n \n export async function logoutHandler(req: Request, res: Response) {\n+  const sessionId = req.cookies[config.cookieName]\n+  if (sessionId) {\n+    destroySession(sessionId)\n+  }\n   res.clearCookie(config.cookieName)\n   return res.status(204).end()\n }\ndiff --git a/src/auth/rateLimiter.test.ts b/src/auth/rateLimiter.test.ts\nnew file mode 100644\nindex 0000000..a16df20\n--- /dev/null\n+++ b/src/auth/rateLimiter.test.ts\n@@ -0,0 +1,26 @@\n+import { expect, test } from 'vitest'\n+import { RateLimiter } from './rateLimiter'\n+\n+const options = { maxAttempts: 3, windowMs: 1000, lockoutMs: 5000 }\n+\n+function setup() {\n+  let now = 0\n+  const clock = { now: () => now }\n+  const limiter = new RateLimiter(options, clock)\n+  return { limiter, advance: (ms: number) => (now += ms) }\n+}\n+\n+test('allows attempts up to the limit', () => {\n+  const { limiter } = setup()\n+  expect(limiter.check('a')).toEqual({ allowed: true, remaining: 2 })\n+  expect(limiter.check('a')).toEqual({ allowed: true, remaining: 1 })\n+  expect(limiter.check('a')).toEqual({ allowed: true, remaining: 0 })\n+})\n+\n+test('locks the key out after too many attempts', () => {\n+  const { limiter, advance } = setup()\n+  for (let i = 0; i < 3; i++) limiter.check('a')\n+  expect(limiter.check('a')).toEqual({ allowed: false, retryAt: 5000 })\n+  advance(5001)\n+  expect(limiter.check('a').allowed).toBe(true)\n+})\ndiff --git a/src/auth/rateLimiter.ts b/src/auth/rateLimiter.ts\nnew file mode 100644\nindex 0000000..fa3674f\n--- /dev/null\n+++ b/src/auth/rateLimiter.ts\n@@ -0,0 +1,56 @@\n+import { systemClock, type Clock } from '../utils/time'\n+\n+export interface RateLimitOptions {\n+  maxAttempts: number\n+  windowMs: number\n+  lockoutMs: number\n+}\n+\n+export type RateLimitResult =\n+  | { allowed: true; remaining: number }\n+  | { allowed: false; retryAt: number }\n+\n+interface Bucket {\n+  attempts: number[]\n+  lockedUntil: number\n+}\n+\n+export class RateLimiter {\n+  private buckets = new Map<string, Bucket>()\n+\n+  constructor(\n+    private options: RateLimitOptions,\n+    private clock: Clock = systemClock,\n+  ) {}\n+\n+  /** Records one attempt for `key` and reports whether it may proceed. */\n+  check(key: string): RateLimitResult {\n+    const now = this.clock.now()\n+    const bucket = this.buckets.get(key) ?? { attempts: [], lockedUntil: 0 }\n+    this.buckets.set(key, bucket)\n+\n+    if (bucket.lockedUntil > now) {\n+      return { allowed: false, retryAt: bucket.lockedUntil }\n+    }\n+\n+    const windowStart = now - this.options.windowMs\n+    bucket.attempts = bucket.attempts.filter((t) => t > windowStart)\n+    bucket.attempts.push(now)\n+\n+    if (bucket.attempts.length > this.options.maxAttempts) {\n+      bucket.lockedUntil = now + this.options.lockoutMs\n+      bucket.attempts = []\n+      return { allowed: false, retryAt: bucket.lockedUntil }\n+    }\n+\n+    return {\n+      allowed: true,\n+      remaining: this.options.maxAttempts - bucket.attempts.length,\n+    }\n+  }\n+\n+  /** Forgets all attempts for `key`, called after a successful login. */\n+  reset(key: string): void {\n+    this.buckets.delete(key)\n+  }\n+}\ndiff --git a/src/auth/session.ts b/src/auth/session.ts\nindex d964682..25ffae5 100644\n--- a/src/auth/session.ts\n+++ b/src/auth/session.ts\n@@ -10,16 +10,32 @@ export interface Session {\n const sessions = new Map<string, Session>()\n \n export function createSession(userId: string): Session {\n-  const id = randomBytes(8).toString('hex')\n+  const id = randomBytes(32).toString('base64url')\n   const session = { id, userId, expiresAt: Date.now() + config.sessionTtlMs }\n   sessions.set(id, session)\n   return session\n }\n \n export function getSession(id: string): Session | undefined {\n-  return sessions.get(id)\n+  const session = sessions.get(id)\n+  if (session && session.expiresAt < Date.now()) {\n+    return undefined\n+  }\n+  return session\n }\n \n export function destroySession(id: string): void {\n   sessions.delete(id)\n }\n+\n+/** Signs the user out everywhere, used after a password change. */\n+export function destroyUserSessions(userId: string): number {\n+  let removed = 0\n+  for (const [id, session] of sessions) {\n+    if (session.userId === userId) {\n+      sessions.delete(id)\n+      removed++\n+    }\n+  }\n+  return removed\n+}\ndiff --git a/src/config.ts b/src/config.ts\nindex 14b277c..6effda0 100644\n--- a/src/config.ts\n+++ b/src/config.ts\n@@ -2,10 +2,20 @@ export interface AppConfig {\n   port: number\n   sessionTtlMs: number\n   cookieName: string\n+  login: {\n+    maxAttempts: number\n+    windowMs: number\n+    lockoutMs: number\n+  }\n }\n \n export const config: AppConfig = {\n   port: Number(process.env.PORT ?? 3000),\n   sessionTtlMs: 1000 * 60 * 60 * 24,\n   cookieName: 'sid',\n+  login: {\n+    maxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS ?? 5),\n+    windowMs: 1000 * 60 * 10,\n+    lockoutMs: 1000 * 60 * 15,\n+  },\n }\ndiff --git a/src/utils/time.ts b/src/utils/time.ts\nnew file mode 100644\nindex 0000000..262eb95\n--- /dev/null\n+++ b/src/utils/time.ts\n@@ -0,0 +1,12 @@\n+/** Wall clock, wrapped so tests can freeze it. */\n+export interface Clock {\n+  now(): number\n+}\n+\n+export const systemClock: Clock = {\n+  now: () => Date.now(),\n+}\n+\n+export function secondsUntil(timestamp: number, clock: Clock = systemClock): number {\n+  return Math.max(0, Math.ceil((timestamp - clock.now()) / 1000))\n+}\n",
+  "cards": [
+    {
+      "id": "config-type",
+      "title": "AppConfig.login",
+      "summary": "New config section for the login rate limit.",
+      "lines": [
+        220,
+        228
+      ],
+      "attention": 1
+    },
+    {
+      "id": "config-values",
+      "title": "Default login limits",
+      "summary": "5 attempts per 10 minutes, then a 15 minute lockout.",
+      "lines": [
+        230,
+        239
+      ],
+      "attention": 3
+    },
+    {
+      "id": "clock",
+      "title": "Clock",
+      "summary": "Injectable wall clock so the limiter can be tested.",
+      "lines": [
+        246,
+        254
+      ],
+      "attention": 1
+    },
+    {
+      "id": "seconds-until",
+      "title": "secondsUntil()",
+      "lines": [
+        255,
+        257
+      ],
+      "attention": 2
+    },
+    {
+      "id": "limiter-types",
+      "title": "Rate limiter types",
+      "lines": [
+        120,
+        136
+      ],
+      "attention": 2
+    },
+    {
+      "id": "limiter-check",
+      "title": "RateLimiter.check()",
+      "summary": "The core of the change: records an attempt and decides whether it may proceed.",
+      "lines": [
+        137,
+        170
+      ],
+      "attention": 8,
+      "provisionalComment": {
+        "severity": "comment",
+        "text": "Buckets are only removed by reset() after a successful login. Every failed attempt for a new ip:email pair leaves an entry in `buckets` forever, so an attacker cycling through emails grows this map without bound. Consider pruning buckets whose attempts and lockout have both expired."
+      }
+    },
+    {
+      "id": "limiter-reset",
+      "title": "RateLimiter.reset()",
+      "lines": [
+        171,
+        175
+      ],
+      "attention": 2
+    },
+    {
+      "id": "limiter-tests",
+      "title": "Rate limiter tests",
+      "summary": "Covers the limit and the lockout, but not the sliding window expiry.",
+      "lines": [
+        88,
+        113
+      ],
+      "attention": 3
+    },
+    {
+      "id": "create-session",
+      "title": "createSession()",
+      "summary": "Session ids go from 64 to 256 bits of entropy.",
+      "lines": [
+        183,
+        189
+      ],
+      "attention": 5
+    },
+    {
+      "id": "get-session",
+      "title": "getSession()",
+      "summary": "Expired sessions are no longer returned.",
+      "lines": [
+        191,
+        198
+      ],
+      "attention": 6,
+      "provisionalComment": {
+        "severity": "question",
+        "text": "An expired session is hidden here but stays in the `sessions` map. Should this call sessions.delete(id) before returning undefined, or is there a sweeper elsewhere?"
+      }
+    },
+    {
+      "id": "destroy-user-sessions",
+      "title": "destroyUserSessions()",
+      "summary": "New helper, not called anywhere in this change.",
+      "lines": [
+        203,
+        214
+      ],
+      "attention": 4
+    },
+    {
+      "id": "login-imports",
+      "title": "login.ts imports",
+      "lines": [
+        20,
+        27
+      ],
+      "attention": 0
+    },
+    {
+      "id": "limiter-key",
+      "title": "limiterKey()",
+      "summary": "One shared limiter, keyed by client IP and email.",
+      "lines": [
+        28,
+        33
+      ],
+      "attention": 7,
+      "provisionalComment": {
+        "severity": "question",
+        "text": "The key includes req.ip, so an attacker who rotates IP addresses gets a fresh budget for the same account each time. Is a per-email limit also needed? The email is also not normalised, so `A@x.com` and `a@x.com` are counted separately."
+      }
+    },
+    {
+      "id": "login-handler",
+      "title": "loginHandler()",
+      "summary": "Input validation, rate limit check, uniform 401, hardened cookie.",
+      "lines": [
+        35,
+        72
+      ],
+      "attention": 9,
+      "provisionalComment": {
+        "severity": "reject",
+        "text": "verifyPassword() is skipped when the user does not exist, so unknown emails answer much faster than known ones. The uniform 401 message hides account existence, but this timing difference gives it away again. Verify against a dummy hash when `user` is missing."
+      }
+    },
+    {
+      "id": "logout-handler",
+      "title": "logoutHandler()",
+      "summary": "Logout now destroys the server-side session too.",
+      "lines": [
+        74,
+        81
+      ],
+      "attention": 4
+    },
+    {
+      "id": "docs",
+      "title": "Document rate limiting",
+      "lines": [
+        6,
+        14
+      ],
+      "attention": 1
+    }
+  ],
+  "relations": [
+    {
+      "from": "config-values",
+      "to": "config-type",
+      "kind": "implements"
+    },
+    {
+      "from": "seconds-until",
+      "to": "clock",
+      "kind": "uses"
+    },
+    {
+      "from": "limiter-check",
+      "to": "limiter-types",
+      "kind": "uses"
+    },
+    {
+      "from": "limiter-check",
+      "to": "clock",
+      "kind": "uses"
+    },
+    {
+      "from": "limiter-tests",
+      "to": "limiter-check",
+      "kind": "tests"
+    },
+    {
+      "from": "limiter-key",
+      "to": "config-values",
+      "kind": "configures"
+    },
+    {
+      "from": "login-handler",
+      "to": "limiter-key",
+      "kind": "calls"
+    },
+    {
+      "from": "login-handler",
+      "to": "limiter-check",
+      "kind": "calls"
+    },
+    {
+      "from": "login-handler",
+      "to": "limiter-reset",
+      "kind": "calls"
+    },
+    {
+      "from": "login-handler",
+      "to": "seconds-until",
+      "kind": "calls"
+    },
+    {
+      "from": "login-handler",
+      "to": "create-session",
+      "kind": "calls"
+    }
+  ]
+}
