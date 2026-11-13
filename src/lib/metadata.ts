@@ -1,8 +1,8 @@
-import { buildDeck, lineLabel, rowsFor, type CardSpec } from './deck.ts'
+import { buildDeck, cardFiles, lineLabel, rowsFor, type CardSpec } from './deck.ts'
 import { normalizeEol, parseDiff } from './diff.ts'
 import { emptyReview, newId } from './review.ts'
 import { SEVERITIES } from './types.ts'
-import type { Edge, ProvisionalComment, ReviewState, Session, Severity } from './types.ts'
+import type { DeckCard, Edge, ProvisionalComment, ReviewState, Session, Severity } from './types.ts'
 
 type Json = Record<string, unknown>
 
@@ -34,9 +34,15 @@ function readCards(v: unknown): CardSpec[] {
   })
 }
 
-function readReview(v: unknown, cardIds: Set<string>): ReviewState {
+/** Reads saved progress, dropping whatever does not match this deck. */
+export function readReview(v: unknown, deck: DeckCard[]): ReviewState {
   const review = emptyReview()
   if (!isObject(v)) return review
+  const cardIds = new Set(deck.map((c) => c.id))
+  if (Array.isArray(v.hiddenFiles)) {
+    const files = new Set(deck.flatMap(cardFiles))
+    review.hiddenFiles = v.hiddenFiles.filter((f): f is string => typeof f === 'string' && files.has(f))
+  }
   if (isObject(v.cards)) {
     for (const [id, c] of Object.entries(v.cards)) {
       if (!cardIds.has(id) || !isObject(c)) continue
@@ -112,14 +118,16 @@ export function loadSession(text: string, fileName: string): Session {
 
   return {
     key: newId(),
+    saveKey: '',
     fileName: fileName.replace(/(\.codeswipe)?\.[^.]+$/, '') + '.codeswipe.json',
     raw,
     title: typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim() : 'Code review',
     description: typeof raw.description === 'string' ? raw.description : '',
     deck,
     edges,
-    review: readReview(raw.review, ids),
+    review: readReview(raw.review, deck),
     warnings,
+    restored: false,
   }
 }
 
@@ -152,25 +160,3 @@ export function download(name: string, content: BlobPart, type = 'text/plain'): 
   a.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
-
-const AUTOSAVE = 'codeswipe:autosave'
-
-export function autosave(session: Session, review: ReviewState): void {
-  try {
-    localStorage.setItem(AUTOSAVE, JSON.stringify({ fileName: session.fileName, text: serializeSession(session, review) }))
-  } catch {
-    // Storage is full or blocked; the download button is the real save.
-  }
-}
-
-export function readAutosave(): { fileName: string; text: string } | null {
-  try {
-    const saved: unknown = JSON.parse(localStorage.getItem(AUTOSAVE) ?? 'null')
-    return isObject(saved) && typeof saved.fileName === 'string' && typeof saved.text === 'string'
-      ? { fileName: saved.fileName, text: saved.text }
-      : null
-  } catch {
-    return null
-  }
-}
-

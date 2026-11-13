@@ -161,6 +161,18 @@ export function buildDeck(rows: DiffRow[], specs: CardSpec[]): { deck: DeckCard[
   return { deck, warnings }
 }
 
+/** Every file a card shows code from. */
+export const cardFiles = (card: DeckCard): string[] => [
+  ...new Set(card.rows.flatMap((r) => (r.type === 'gap' ? [] : [r.file]))),
+]
+
+/** The deck without the cards whose files are all unchecked in the file filter. */
+export function visibleDeck(deck: DeckCard[], hiddenFiles: string[]): DeckCard[] {
+  if (!hiddenFiles.length) return deck
+  const hidden = new Set(hiddenFiles)
+  return deck.filter((card) => !cardFiles(card).every((f) => hidden.has(f)))
+}
+
 /** "12-18" in new-file line numbers, or "old 5-7" when the rows are all deletions. */
 export function lineLabel(rows: DiffRow[]): string {
   const span = (nums: number[]) => {

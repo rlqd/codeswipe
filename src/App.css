@@ -254,7 +254,7 @@
 
 .progress {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   align-items: center;
   gap: 6px 14px;
   width: min(820px, 100% - 32px);
@@ -279,7 +279,20 @@
 .progress-label b {
   color: var(--text);
 }
+.filter-btn {
+  padding: 2px 10px;
+  font-size: 13px;
+}
+.filter-btn small {
+  font-size: 12px;
+  color: var(--muted);
+}
+.filter-btn.on {
+  border-color: var(--orange);
+  color: var(--orange);
+}
 .ticks {
+  position: relative;
   grid-column: 1 / -1;
   min-width: 0;
   display: flex;
@@ -323,6 +336,36 @@
   font-size: 13px;
   text-align: left;
   color: var(--comment);
+}
+.toast {
+  /* Sits over the card ticks, clear of the card and its controls. */
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 9;
+  max-width: 100%;
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--panel-2);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.5);
+  font-size: 13px;
+  translate: -50% -50%;
+  white-space: nowrap;
+  pointer-events: none;
+  animation: toast 5s both;
+}
+@keyframes toast {
+  0%,
+  100% {
+    opacity: 0;
+    translate: -50% calc(-50% - 6px);
+  }
+  6%,
+  92% {
+    opacity: 1;
+    translate: -50% -50%;
+  }
 }
 
 /* ---------- deck ---------- */
@@ -767,6 +810,76 @@
 }
 .modal-note {
   font-size: 13px;
+  color: var(--muted);
+}
+.modal-note.failed {
+  color: var(--reject);
+}
+.modal-actions .modal-note {
+  align-self: center;
+}
+.save-toggle {
+  align-self: flex-start;
+  font-size: 15px;
+}
+.tree,
+.tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.tree {
+  min-height: 80px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+}
+.tree-row:hover {
+  background: var(--panel-2);
+}
+.tree-fold {
+  flex: none;
+  width: 20px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+}
+.tree-row label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tree-row input {
+  flex: none;
+  margin: 0;
+  accent-color: var(--orange);
+}
+.tree-dir {
+  color: var(--muted);
+}
+.tree-row:has(input:not(:checked):not(:indeterminate)) :is(.tree-dir, .tree-file) {
+  opacity: 0.45;
+  text-decoration: line-through;
+}
+.tree-count {
+  flex: none;
+  padding: 0 8px;
   color: var(--muted);
 }
 .segmented {

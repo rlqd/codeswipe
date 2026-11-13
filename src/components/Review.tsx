@@ -1,19 +1,38 @@
 import { useEffect, useReducer, useState } from 'react'
 import type { Point } from '../lib/layout.ts'
-import { autosave, download, exportMarkdown, serializeSession } from '../lib/metadata.ts'
+import { visibleDeck } from '../lib/deck.ts'
+import { download, exportMarkdown, serializeSession } from '../lib/metadata.ts'
 import { cardStatus, isReviewed, progress, reducer } from '../lib/review.ts'
+import { autosaveEnabled, clearProgress, saveProgress, setAutosaveEnabled } from '../lib/storage.ts'
 import type { Session } from '../lib/types.ts'
 import { Deck } from './Deck.tsx'
 import { Diagram } from './Diagram.tsx'
+import { FileFilter } from './FileFilter.tsx'
+import { SaveDialog } from './SaveDialog.tsx'
 
 export function Review({ session, onClose }: { session: Session; onClose: () => void }) {
-  const { deck } = session
   const [review, dispatch] = useReducer(reducer, session.review)
+  // Everything below works on the cards the file filter lets through.
+  const deck = visibleDeck(session.deck, review.hiddenFiles)
+  const hiddenCount = session.deck.length - deck.length
+  const shownIds = new Set(deck.map((c) => c.id))
+  const edges = hiddenCount ? session.edges.filter((e) => shownIds.has(e.from) && shownIds.has(e.to)) : session.edges
   const [view, setView] = useState<'cards' | 'diagram'>('cards')
   const [index, setIndex] = useState(() => {
     const first = deck.findIndex((c) => !isReviewed(session.review, c.id))
     return first < 0 ? deck.length : first
   })
+  const [dialog, setDialog] = useState<'files' | 'save' | null>(null)
+  const [autoSave, setAutoSave] = useState(autosaveEnabled)
+  const [saveFailed, setSaveFailed] = useState(false)
+  const [toast, setToast] = useState(session.restored)
+  useEffect(() => {
+    if (!toast) return
+    const timer = setTimeout(() => setToast(false), 5000)
+    return () => clearTimeout(timer)
+  }, [toast])
+  /** The progress as last downloaded, to know whether leaving would lose anything. */
+  const [downloaded, setDownloaded] = useState(session.review)
   const [moved, setMoved] = useState<Record<string, Point>>({})
   const [warnings, setWarnings] = useState(session.warnings)
   const [wrap, setWrap] = useState(() => {
@@ -32,7 +51,17 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
     }
   }
 
-  useEffect(() => autosave(session, review), [session, review])
+  useEffect(() => {
+    if (!autoSave) return
+    let current = true
+    saveProgress(session, review).then(
+      () => current && setSaveFailed(false),
+      () => current && setSaveFailed(true),
+    )
+    return () => {
+      current = false
+    }
+  }, [autoSave, session, review])
   // A file dropped mid-review must not replace the page.
   useEffect(() => {
     const block = (e: DragEvent) => e.preventDefault()
@@ -46,13 +75,30 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
 
   const percent = Math.round(progress(deck, review) * 100)
   const reviewed = deck.filter((c) => isReviewed(review, c.id)).length
+  const setHiddenFiles = (files: string[]) => {
+    // Stay on the current card if it survives, else go to the next one that needs a look.
+    const next = visibleDeck(session.deck, files)
+    const currentId = deck[index]?.id
+    let at = next.findIndex((c) => c.id === currentId)
+    if (at < 0) at = next.findIndex((c) => !isReviewed(review, c.id))
+    dispatch({ type: 'setHiddenFiles', files })
+    setIndex(at < 0 ? next.length : at)
+  }
+  const downloadProgress = () => {
+    download(session.fileName, serializeSession(session, review), 'application/json')
+    setDownloaded(review)
+  }
+  const close = () => {
+    const kept = (autoSave && !saveFailed) || review === downloaded
+    if (kept || window.confirm('Leave this review? Progress you have not saved will be lost.')) onClose()
+  }
   const exportComments = () =>
     download(session.fileName.replace(/\.codeswipe\.json$/, '') + '.review.md', exportMarkdown(session, review), 'text/markdown')
 
   return (
     <div className={`review${wrap ? ' wrap-code' : ''}`}>
       <header className="bar">
-        <button type="button" className="logo" onClick={onClose} title="Back to start. Your progress is kept in this browser.">
+        <button type="button" className="logo" onClick={close} title="Back to start">
           code<span>swipe</span>
         </button>
         <h1 title={session.description || undefined}>{session.title}</h1>
@@ -74,10 +120,10 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
         <button
           type="button"
           className="btn primary"
-          onClick={() => download(session.fileName, serializeSession(session, review), 'application/json')}
-          title="The review file with your progress inside"
+          onClick={() => setDialog('save')}
+          title={autoSave && !saveFailed ? 'Auto-saving in this browser' : 'Download the file or turn on auto-save'}
         >
-          Download progress
+          Save progress
         </button>
       </header>
 
@@ -88,6 +134,14 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
         <span className="progress-label">
           <b>{percent}%</b> reviewed, {reviewed}/{deck.length} cards
         </span>
+        <button
+          type="button"
+          className={`btn filter-btn${hiddenCount ? ' on' : ''}`}
+          onClick={() => setDialog('files')}
+          title="Choose which files and folders to review"
+        >
+          Files{hiddenCount > 0 && <small>{hiddenCount} cards hidden</small>}
+        </button>
         <div className="ticks">
           {deck.map((card, i) => (
             <button
@@ -103,6 +157,11 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
               }}
             />
           ))}
+          {toast && (
+            <div className="toast" role="status">
+              Restored your auto-saved progress for this file.
+            </div>
+          )}
         </div>
       </div>
 
@@ -113,11 +172,21 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
       )}
 
       {view === 'cards' ? (
-        <Deck deck={deck} index={index} setIndex={setIndex} review={review} dispatch={dispatch} onFinish={exportComments} />
+        <Deck
+          deck={deck}
+          index={index}
+          setIndex={setIndex}
+          review={review}
+          dispatch={dispatch}
+          onFinish={exportComments}
+          paused={dialog !== null}
+          hiddenCount={hiddenCount}
+        />
       ) : (
         <Diagram
           deck={deck}
-          edges={session.edges}
+          key={review.hiddenFiles.join('\n')}
+          edges={edges}
           review={review}
           currentId={deck[index]?.id}
           moved={moved}
@@ -126,6 +195,23 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
             setIndex(i)
             setView('cards')
           }}
+        />
+      )}
+
+      {dialog === 'files' && (
+        <FileFilter deck={session.deck} hidden={review.hiddenFiles} onChange={setHiddenFiles} onClose={() => setDialog(null)} />
+      )}
+      {dialog === 'save' && (
+        <SaveDialog
+          autoSave={autoSave}
+          failed={saveFailed}
+          onToggle={(on) => {
+            setAutoSave(on)
+            setAutosaveEnabled(on)
+          }}
+          onDownload={downloadProgress}
+          onClear={clearProgress}
+          onClose={() => setDialog(null)}
         />
       )}
     </div>

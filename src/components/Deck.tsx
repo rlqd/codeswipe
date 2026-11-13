@@ -12,13 +12,17 @@ interface Props {
   review: ReviewState
   dispatch: ActionDispatch<[Action]>
   onFinish: () => void
+  /** Another dialog is open: keyboard shortcuts must not act on the cards behind it. */
+  paused: boolean
+  /** Cards the file filter is hiding. */
+  hiddenCount: number
 }
 
 /** Horizontal distance, in px, a drag must cover to count as a swipe. */
 const SWIPE = 110
 const EXIT_MS = 220
 
-export function Deck({ deck, index, setIndex, review, dispatch, onFinish }: Props) {
+export function Deck({ deck, index, setIndex, review, dispatch, onFinish, paused, hiddenCount }: Props) {
   const card = deck[index] as DeckCard | undefined
   const [drag, setDrag] = useState<{ x: number; y: number } | null>(null)
   const [exit, setExit] = useState<'left' | 'right' | null>(null)
@@ -94,7 +98,7 @@ export function Deck({ deck, index, setIndex, review, dispatch, onFinish }: Prop
   }
 
   const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (e.ctrlKey || e.metaKey || e.altKey || draft) return
+    if (e.ctrlKey || e.metaKey || e.altKey || draft || paused) return
     if (prompting) {
       // Opened from the banner after the comment was already handled: read-only.
       if (!card || !provisionalOpen(card)) setPrompting(false)
@@ -154,13 +158,20 @@ export function Deck({ deck, index, setIndex, review, dispatch, onFinish }: Prop
   return (
     <div className="deck-view">
       <div className="deck">
-        {!card && (
+        {!card && deck.length === 0 && (
+          <div className="done">
+            <h2>No cards to show</h2>
+            <p>The file filter hides all {hiddenCount} cards. Open "Files" above to bring some back.</p>
+          </div>
+        )}
+        {!card && deck.length > 0 && (
           <div className="done">
             <div className="done-mark">✓</div>
             <h2>Everything is reviewed</h2>
             <p>
-              {deck.length} cards, {review.comments.length} comment{review.comments.length === 1 ? '' : 's'}. Download the
-              file to keep your progress, or export the comments for the author.
+              {deck.length} cards, {review.comments.length} comment{review.comments.length === 1 ? '' : 's'}
+              {hiddenCount > 0 && `, ${hiddenCount} more hidden by the file filter`}. Save your progress to keep it, or
+              export the comments for the author.
             </p>
             <button type="button" className="btn primary" onClick={onFinish}>
               Export comments (.md)

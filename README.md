@@ -40,7 +40,8 @@ npm run lint
   "relations": [{ "from": "login-handler", "to": "limiter-check", "kind": "calls" }],
   "review": {                            // written by the app, absent in a fresh file
     "cards": { "limiter-check": { "accepted": true, "provisional": "dismissed" } },
-    "comments": [{ "id": "...", "card": "login-handler#2", "severity": "reject", "text": "...", "lines": [66, 69] }]
+    "comments": [{ "id": "...", "card": "login-handler#2", "severity": "reject", "text": "...", "lines": [66, 69] }],
+    "hiddenFiles": ["test/login.test.ts"]  // unchecked in the file filter
   }
 }
 ```

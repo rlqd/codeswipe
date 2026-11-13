@@ -5,8 +5,9 @@ export type Action =
   | { type: 'unaccept'; card: string }
   | { type: 'saveComment'; comment: ReviewComment; adoptProvisional?: boolean }
   | { type: 'deleteComment'; id: string }
+  | { type: 'setHiddenFiles'; files: string[] }
 
-export const emptyReview = (): ReviewState => ({ cards: {}, comments: [] })
+export const emptyReview = (): ReviewState => ({ cards: {}, comments: [], hiddenFiles: [] })
 
 export function reducer(state: ReviewState, action: Action): ReviewState {
   const patchCard = (id: string, patch: ReviewState['cards'][string]) => ({
@@ -28,6 +29,7 @@ export function reducer(state: ReviewState, action: Action): ReviewState {
       const { comment } = action
       const exists = state.comments.some((c) => c.id === comment.id)
       return {
+        ...state,
         cards: action.adoptProvisional ? patchCard(comment.card, { provisional: 'adopted' }) : state.cards,
         comments: exists
           ? state.comments.map((c) => (c.id === comment.id ? comment : c))
@@ -36,6 +38,8 @@ export function reducer(state: ReviewState, action: Action): ReviewState {
     }
     case 'deleteComment':
       return { ...state, comments: state.comments.filter((c) => c.id !== action.id) }
+    case 'setHiddenFiles':
+      return { ...state, hiddenFiles: action.files }
   }
 }
 

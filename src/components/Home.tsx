@@ -1,7 +1,7 @@
 import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import skillMd from '../../skill/codeswipe-review/SKILL.md?raw'
 import skillScript from '../../skill/codeswipe-review/scripts/codeswipe.mjs?raw'
-import { download, readAutosave } from '../lib/metadata.ts'
+import { download } from '../lib/metadata.ts'
 import { makeZip } from '../lib/zip.ts'
 
 const SKILL_FILES = [
@@ -17,7 +17,6 @@ interface Props {
 export function Home({ error, onLoad }: Props) {
   const [over, setOver] = useState(false)
   const [copied, setCopied] = useState<string | null>(null)
-  const [saved] = useState(readAutosave)
   const input = useRef<HTMLInputElement>(null)
 
   const open = async (file: File | undefined) => {
@@ -78,11 +77,6 @@ export function Home({ error, onLoad }: Props) {
       {error && <p className="error">{error}</p>}
 
       <div className="home-links">
-        {saved && (
-          <button type="button" className="btn" onClick={() => onLoad(saved.text, saved.fileName)}>
-            Resume {saved.fileName}
-          </button>
-        )}
         <button type="button" className="btn" onClick={() => void loadSample()}>
           Try a sample review
         </button>
@@ -123,8 +117,8 @@ export function Home({ error, onLoad }: Props) {
         </li>
         <li>
           <p>
-            <b>Drop the file above and swipe.</b> Download it again at any time to keep your progress, and export your
-            comments as Markdown when you are done.
+            <b>Drop the file above and swipe.</b> Save your progress at any time, as a download or automatically in this
+            browser, and export your comments as Markdown when you are done.
           </p>
         </li>
       </ol>

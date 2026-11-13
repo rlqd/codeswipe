@@ -64,10 +64,14 @@ export interface CardReview {
 export interface ReviewState {
   cards: Record<string, CardReview>
   comments: ReviewComment[]
+  /** Paths unchecked in the file filter; cards that touch only these are hidden. */
+  hiddenFiles: string[]
 }
 
 export interface Session {
   key: string
+  /** Identifies the file for auto-save; empty when it could not be computed. */
+  saveKey: string
   fileName: string
   /** The parsed file as loaded; unknown fields survive a download. */
   raw: Record<string, unknown>
@@ -77,4 +81,6 @@ export interface Session {
   edges: Edge[]
   review: ReviewState
   warnings: string[]
+  /** The review came from this browser's auto-save rather than the file. */
+  restored: boolean
 }

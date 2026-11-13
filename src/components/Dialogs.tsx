@@ -3,7 +3,7 @@ import { lineLabel, rowsFor } from '../lib/deck.ts'
 import { SEVERITIES } from '../lib/types.ts'
 import type { DeckCard, ProvisionalComment, ReviewComment, Severity } from '../lib/types.ts'
 
-function Modal({ onClose, onKeyDown, children }: { onClose: () => void; onKeyDown?: (e: KeyboardEvent) => void; children: ReactNode }) {
+export function Modal({ onClose, onKeyDown, children }: { onClose: () => void; onKeyDown?: (e: KeyboardEvent) => void; children: ReactNode }) {
   return (
     <div className="overlay" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div className="modal" role="dialog" aria-modal="true" onKeyDown={onKeyDown}>
