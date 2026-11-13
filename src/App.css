@@ -397,11 +397,27 @@
   border-radius: 16px;
   background: var(--panel);
   user-select: none;
-  touch-action: none;
   transition:
     transform 0.22s ease-out,
     opacity 0.22s;
   animation: card-in 0.2s;
+}
+/* touch-action does not reach through scroll containers (the code area, and
+   anything with overflow: hidden), so it is set on every descendant too.
+   Otherwise the browser claims the touch for panning and cancels the swipe. */
+.card,
+.card * {
+  touch-action: none;
+}
+/* Vertical panning stays with the browser so wrapped code can be scrolled by
+   touch; horizontal movement always goes to the swipe. */
+.card .code,
+.card .code * {
+  touch-action: pan-y;
+}
+.card .code .gutter,
+.card .code .gutter * {
+  touch-action: none;
 }
 @keyframes card-in {
   from {
