@@ -2,17 +2,15 @@
 
 Code review as a deck of cards. A coding agent turns a diff into a `*.codeswipe.json` file; a human drops it into this app and swipes through it.
 
+Use it here - https://rlqd.github.io/codeswipe/
+
+Or build your own:
+
 ```
 npm run dev      # start the app
 npm run build    # type-check and build
 npm run lint
 ```
-
-## GitHub Pages
-
-In the GitHub repository, set **Settings → Pages → Source** to **GitHub Actions**.
-The deployment workflow builds and publishes `dist` on pushes to `main`, or when
-run manually from the Actions tab. Vite uses `/codeswipe/` as the base path.
 
 ## How it fits together
 
