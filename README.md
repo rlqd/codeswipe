@@ -8,6 +8,12 @@ npm run build    # type-check and build
 npm run lint
 ```
 
+## GitHub Pages
+
+In the GitHub repository, set **Settings → Pages → Source** to **GitHub Actions**.
+The deployment workflow builds and publishes `dist` on pushes to `main`, or when
+run manually from the Actions tab. Vite uses `/codeswipe/` as the base path.
+
 ## How it fits together
 
 - `skill/codeswipe-review/` is the agent skill that produces the review file. `SKILL.md` explains how to split, order and annotate a diff; `scripts/codeswipe.mjs` numbers the diff lines, assembles the file and validates it. The app serves both from its start screen.
