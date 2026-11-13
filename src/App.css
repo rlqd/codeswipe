@@ -203,6 +203,50 @@
   background: none;
   color: var(--muted);
 }
+.wrap-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+.wrap-toggle input {
+  appearance: none;
+  position: relative;
+  width: 30px;
+  height: 18px;
+  margin: 0;
+  border-radius: 9px;
+  background: var(--border);
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.wrap-toggle input::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text);
+  transition: transform 0.2s;
+}
+.wrap-toggle input:checked {
+  background: var(--orange);
+}
+.wrap-toggle input:checked::before {
+  transform: translateX(12px);
+}
+.wrap-toggle input:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+.wrap-toggle:has(input:checked) {
+  color: var(--text);
+}
 .tabs button.on {
   background: var(--border);
   color: var(--text);
@@ -237,12 +281,14 @@
 }
 .ticks {
   grid-column: 1 / -1;
+  min-width: 0;
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
 }
 .ticks button {
-  flex: 1 1 0;
-  min-width: 3px;
+  flex: none;
+  width: 6px;
   height: 14px;
   padding: 0;
   border: 0;
@@ -255,6 +301,9 @@
   height: 4px;
   border-radius: 2px;
   background: var(--c, var(--border));
+}
+.ticks button.tick-prov {
+  --c: var(--provisional);
 }
 .ticks button:hover::before,
 .ticks button.current::before {
@@ -546,6 +595,21 @@
 }
 .src {
   padding-right: 2ch;
+}
+/* Wrapped mode: long lines wrap and the code scrolls vertically instead. */
+.wrap-code .code {
+  overflow: hidden auto;
+}
+.wrap-code .code-inner {
+  width: auto;
+}
+.wrap-code .row {
+  white-space: pre-wrap;
+}
+.wrap-code .src {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .tk-com {
   color: #6b7386;

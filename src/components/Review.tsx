@@ -16,6 +16,21 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
   })
   const [moved, setMoved] = useState<Record<string, Point>>({})
   const [warnings, setWarnings] = useState(session.warnings)
+  const [wrap, setWrap] = useState(() => {
+    try {
+      return localStorage.getItem('codeswipe:wrap') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleWrap = (on: boolean) => {
+    setWrap(on)
+    try {
+      localStorage.setItem('codeswipe:wrap', on ? '1' : '0')
+    } catch {
+      // Storage may be unavailable; the toggle still works for this session.
+    }
+  }
 
   useEffect(() => autosave(session, review), [session, review])
   // A file dropped mid-review must not replace the page.
@@ -35,7 +50,7 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
     download(session.fileName.replace(/\.codeswipe\.json$/, '') + '.review.md', exportMarkdown(session, review), 'text/markdown')
 
   return (
-    <div className="review">
+    <div className={`review${wrap ? ' wrap-code' : ''}`}>
       <header className="bar">
         <button type="button" className="logo" onClick={onClose} title="Back to start. Your progress is kept in this browser.">
           code<span>swipe</span>
@@ -49,6 +64,10 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
             Diagram
           </button>
         </nav>
+        <label className="wrap-toggle" title="Wrap long code lines and scroll vertically">
+          <input type="checkbox" checked={wrap} onChange={(e) => toggleWrap(e.target.checked)} />
+          Wrap lines
+        </label>
         <button type="button" className="btn" onClick={exportComments} disabled={!review.comments.length} title="Only your comments, as Markdown">
           Export comments
         </button>
@@ -74,8 +93,9 @@ export function Review({ session, onClose }: { session: Session; onClose: () => 
             <button
               type="button"
               key={card.id}
-              className={`st-${cardStatus(review, card.id)}${i === index ? ' current' : ''}`}
-              style={{ flexGrow: card.weight }}
+              className={`st-${cardStatus(review, card.id)}${
+                card.provisional && !isReviewed(review, card.id) ? ' tick-prov' : ''
+              }${i === index ? ' current' : ''}`}
               title={`${i + 1}. ${card.title}`}
               onClick={() => {
                 setIndex(i)
